@@ -633,7 +633,7 @@ if not data.empty and st.session_state.current_index < len(data):
     else:
         st.info("No saved choice for this sample yet.")
     
-    btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
+    btn_col1, btn_col2, btn_col3, btn_col4, btn_col5 = st.columns(5)
     
     def handle_click(choice):
         annotation = {
@@ -663,8 +663,12 @@ if not data.empty and st.session_state.current_index < len(data):
         handle_click("Tie")
         st.rerun()
         
-    if btn_col4.button("❌ Both Bad / Invalid", width="stretch", type="primary" if saved_choice == "Bad" else "secondary"):
+    if btn_col4.button("❌ Both Sets Bad", width="stretch", type="primary" if saved_choice == "Bad" else "secondary"):
         handle_click("Bad")
+        st.rerun()
+
+    if btn_col5.button("⚠️ Invalid Reaction", width="stretch", type="primary" if saved_choice == "Invalid Reaction" else "secondary"):
+        handle_click("Invalid Reaction")
         st.rerun()
 
 elif not data.empty:
