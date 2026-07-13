@@ -12,13 +12,14 @@ for path in (REPO_ROOT, CHEMPROP_ROOT):
     if path_str not in sys.path:
         sys.path.insert(0, path_str)
 
+from train_unicon import SLOT_ORDER
 
 DEFAULT_TEST_PATH = str(REPO_ROOT / "data/MPNN_data/GCN_data_test.csv")
 DEFAULT_LABEL_PATH = str(REPO_ROOT / "data/labels")
 DEFAULT_LIBRARY_PATH = str(REPO_ROOT / "data/condition_library")
 DEFAULT_OUTPUT_DIR = str(REPO_ROOT / "expert_annotation")
 DEFAULT_VOCAB_CACHE_DIR = str(REPO_ROOT / "expert_annotation/_cache/unicon_vocab")
-TARGET_COLUMNS = ["cat", "solv0", "solv1", "reag0", "reag1", "reag2"]
+TARGET_COLUMNS = list(SLOT_ORDER)
 DISPLAY_SLOT_LABELS = {
     "cat": "Catalyst",
     "solv0": "Solvent",
