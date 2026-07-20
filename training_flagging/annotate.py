@@ -126,7 +126,7 @@ else:
     saved_rows = responses.loc[responses["evaluation_id"].astype(int) == evaluation_id]
     saved = saved_rows.iloc[-1] if not saved_rows.empty else None
 
-st.title("🧪 Dataset Plausibility Flagging")
+st.title("🧪 Reaction-Condition Dataset Flagging")
 st.progress(index / len(data))
 left, center, right = st.columns([1, 2, 1])
 if left.button("< Previous", disabled=index == 0, width="stretch"):
