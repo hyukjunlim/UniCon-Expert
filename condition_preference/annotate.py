@@ -47,7 +47,7 @@ def show_condition_option(title, row, value_column, slot_column, figure_dir):
     if not assets:
         st.caption("No condition SMILES")
         return
-    columns = st.columns(min(3, len(assets)))
+    columns = st.columns(min(2, len(assets)))
     missing = []
     for index, (path, smiles, role) in enumerate(assets):
         with columns[index % len(columns)]:
