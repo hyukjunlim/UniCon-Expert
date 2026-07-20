@@ -341,7 +341,7 @@ if not data.empty and st.session_state.current_index < len(data):
     st.divider()
 
     # --- Reagent Choices ---
-    st.subheader("Which reagent set is better?")
+    st.subheader("Which condition set do you prefer?")
     col_left, col_right = st.columns(2)
     
     with col_left:
