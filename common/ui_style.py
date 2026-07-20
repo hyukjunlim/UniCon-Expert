@@ -27,17 +27,23 @@ CONDITION_SLOT_DISPLAY_LABELS = {
 
 ANNOTATION_APP_CSS = """
 <style>
-/* Keep the annotation canvas proportional to the browser width. */
-div[data-testid="stMainBlockContainer"],
-.stMain .block-container {
-    max-width: 70%;
-    width: 70%;
+/*
+ * Keep the annotation canvas proportional to the browser width.
+ *
+ * Streamlit Cloud may append its generated layout styles after this block, so
+ * target Streamlit's stable test id and make these two layout declarations
+ * explicit. The class selector remains as a fallback for older releases.
+ */
+[data-testid="stAppViewContainer"] div[data-testid="stMainBlockContainer"],
+[data-testid="stAppViewContainer"] .stMain .block-container {
+    max-width: 70% !important;
+    width: 70% !important;
 }
 @media (max-width: 768px) {
-    div[data-testid="stMainBlockContainer"],
-    .stMain .block-container {
-        max-width: 100%;
-        width: 100%;
+    [data-testid="stAppViewContainer"] div[data-testid="stMainBlockContainer"],
+    [data-testid="stAppViewContainer"] .stMain .block-container {
+        max-width: 100% !important;
+        width: 100% !important;
     }
 }
 .stButton > button {
