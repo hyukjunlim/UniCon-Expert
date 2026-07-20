@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 from rdkit import Chem
 from rdkit.Chem import Draw, rdChemReactions
 
-from expert_annotation.common.ui_style import IMAGE_RENDER_SCALE, scale_size
+from common.ui_style import IMAGE_RENDER_SCALE, scale_size
 
 
 REACTION_MOLECULE_IMAGE_SIZE = (500, 300)

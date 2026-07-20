@@ -12,13 +12,13 @@ from rdkit.Chem import Draw
 from rdkit.Chem.Draw import rdMolDraw2D
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from expert_annotation.common.csv_store import read_csv_if_exists, upsert_row
-from expert_annotation.common.reaction_rendering import render_reaction
-from expert_annotation.common.ui_style import (
+from common.csv_store import read_csv_if_exists, upsert_row
+from common.reaction_rendering import render_reaction
+from common.ui_style import (
     ANNOTATION_APP_CSS,
     CONDITION_IMAGE_SIZE,
     CONDITION_LEGEND_FONT_SIZE,
