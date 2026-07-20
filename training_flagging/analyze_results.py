@@ -52,7 +52,7 @@ def main():
         lambda values: "Missing reagent" in values or "Misassigned reagent" in values
     )
     completed["questionable_archive"] = (
-        completed["overall_assessment"] == "Archived protocol is incomplete/questionable"
+        completed["overall_assessment"] == "Archived protocol is implausible"
     )
     print("\nPrimary flagging rates by hidden sampling group:")
     print(

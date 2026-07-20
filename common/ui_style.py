@@ -7,7 +7,7 @@ is the visual reference for the other expert-annotation tools.
 from PIL import Image
 
 
-IMAGE_RENDER_SCALE = 2
+IMAGE_RENDER_SCALE = 1
 CONDITION_IMAGE_SIZE = (500, 300)
 CONDITION_MOLECULE_IMAGE_SIZE = (180, 180)
 CONDITION_LEGEND_FONT_SIZE = 50

@@ -35,7 +35,7 @@ DEFAULT_OUTPUT = DATA_DIR / "human_annotations.csv"
 ISSUE_OPTIONS = ["Missing reagent", "Misassigned reagent", "No obvious annotation issue"]
 ASSESSMENT_OPTIONS = [
     "Archived protocol is plausible",
-    "Archived protocol is incomplete/questionable",
+    "Archived protocol is implausible",
     "Cannot determine",
 ]
 
