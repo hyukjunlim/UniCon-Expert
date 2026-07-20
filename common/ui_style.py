@@ -27,12 +27,18 @@ CONDITION_SLOT_DISPLAY_LABELS = {
 
 ANNOTATION_APP_CSS = """
 <style>
-/* Keep the annotation canvas at a comfortable reading width on ultrawide
-   displays. It remains fluid below this limit, so smaller windows and mobile
-   layouts still use all of the available space. */
+/* Keep the annotation canvas proportional to the browser width. */
 div[data-testid="stMainBlockContainer"],
 .stMain .block-container {
-    max-width: 1280px;
+    max-width: 70%;
+    width: 70%;
+}
+@media (max-width: 768px) {
+    div[data-testid="stMainBlockContainer"],
+    .stMain .block-container {
+        max-width: 100%;
+        width: 100%;
+    }
 }
 .stButton > button {
     height: 3em;
