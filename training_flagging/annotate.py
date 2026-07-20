@@ -161,7 +161,7 @@ condition_assets = load_pre_rendered_condition_paths(
     "archived_condition",
     figure_dir,
 )
-condition_columns = st.columns(min(2, max(1, len(condition_assets))))
+condition_columns = st.columns(min(4, max(1, len(condition_assets))))
 missing_assets = []
 if not condition_assets:
     st.caption("No listed condition components")
