@@ -103,6 +103,8 @@ git subtree split \
   --branch=expert-annotation-publish
 
 git push expert-annotation expert-annotation-publish:main
+git push --force-with-lease   expert-annotation   expert-annotation-publish:main
+git push --force   expert-annotation   expert-annotation-publish:main
 ```
 
 Optionally remove the local publishing branch afterward:

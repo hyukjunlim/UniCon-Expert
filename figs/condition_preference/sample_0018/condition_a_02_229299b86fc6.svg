@@ -1,0 +1,32 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="500px" height="300px" viewBox="0 0 500 300"><rect width="500" height="300" fill="white"/>
+<rect style='opacity:1.0;fill:#FFFFFF;stroke:none' width='500.0' height='300.0' x='0.0' y='0.0'> </rect>
+<path class='atom-0' d='M 225.0 135.8
+L 228.9 135.8
+L 228.9 147.9
+L 243.4 147.9
+L 243.4 135.8
+L 247.2 135.8
+L 247.2 164.2
+L 243.4 164.2
+L 243.4 151.1
+L 228.9 151.1
+L 228.9 164.2
+L 225.0 164.2
+L 225.0 135.8
+' fill='#000000'/>
+<path class='atom-0' d='M 252.8 135.8
+L 256.6 135.8
+L 256.6 147.9
+L 271.1 147.9
+L 271.1 135.8
+L 275.0 135.8
+L 275.0 164.2
+L 271.1 164.2
+L 271.1 151.1
+L 256.6 151.1
+L 256.6 164.2
+L 252.8 164.2
+L 252.8 135.8
+' fill='#000000'/>
+</svg>
