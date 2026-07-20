@@ -302,7 +302,7 @@ if not data.empty and st.session_state.current_index < len(data):
     opt2_column = "condition_b" if is_opt1_a else "condition_a"
 
     # --- UI Header ---
-    st.title("🧪 Chemical Reaction Preference Annotation")
+    st.title("🧪 Chemical Reaction Condition Preference")
     
     # Progress
     progress = (idx) / len(data)
