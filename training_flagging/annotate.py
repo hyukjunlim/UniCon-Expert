@@ -161,7 +161,9 @@ condition_assets = load_pre_rendered_condition_paths(
     "archived_condition",
     figure_dir,
 )
-condition_columns = st.columns(min(3, max(1, len(condition_assets))))
+# Match the total four component slots across the two preference options.
+# Keeping the count fixed prevents short rows from stretching across the page.
+condition_columns = st.columns(4)
 missing_assets = []
 if not condition_assets:
     st.caption("No listed condition components")

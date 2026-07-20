@@ -27,23 +27,17 @@ CONDITION_SLOT_DISPLAY_LABELS = {
 
 ANNOTATION_APP_CSS = """
 <style>
-/*
- * Keep the annotation canvas proportional to the browser width.
- *
- * Streamlit Cloud may append its generated layout styles after this block, so
- * target Streamlit's stable test id and make these two layout declarations
- * explicit. The class selector remains as a fallback for older releases.
- */
-[data-testid="stAppViewContainer"] div[data-testid="stMainBlockContainer"],
-[data-testid="stAppViewContainer"] .stMain .block-container {
-    max-width: 70% !important;
-    width: 70% !important;
+/* Keep the annotation canvas proportional to the browser width. */
+div[data-testid="stMainBlockContainer"],
+.stMain .block-container {
+    max-width: 70%;
+    width: 70%;
 }
 @media (max-width: 768px) {
-    [data-testid="stAppViewContainer"] div[data-testid="stMainBlockContainer"],
-    [data-testid="stAppViewContainer"] .stMain .block-container {
-        max-width: 100% !important;
-        width: 100% !important;
+    div[data-testid="stMainBlockContainer"],
+    .stMain .block-container {
+        max-width: 100%;
+        width: 100%;
     }
 }
 .stButton > button {
@@ -75,13 +69,14 @@ div[data-testid="stSegmentedControl"] button {
     align-items: center;
     display: flex;
     height: 240px;
-    justify-content: center;
+    justify-content: flex-start;
     overflow: hidden;
     width: 100%;
 }
 .condition-component-image img {
     height: 100%;
     object-fit: contain;
+    object-position: left center;
     width: 100%;
 }
 </style>
