@@ -1,241 +1,42 @@
-# streamlit run annotation_run.py
+# streamlit run annotate.py
 
 import streamlit as st
 import pandas as pd
 import random
-from datetime import datetime
 import os
 import sys
+from pathlib import Path
 from rdkit import Chem
-from rdkit.Chem import rdChemReactions
 from rdkit.Chem import Draw
 from rdkit.Chem.Draw import rdMolDraw2D
-from PIL import Image, ImageDraw, ImageFont
-import io
 
-DEFAULT_START = 0
-DEFAULT_END = 50
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-def get_range_from_args(default_start=DEFAULT_START, default_end=DEFAULT_END):
-    numeric_args = []
-    for arg in sys.argv[1:]:
-        try:
-            numeric_args.append(int(arg))
-        except ValueError:
-            continue
+from expert_annotation.common.csv_store import upsert_row
+from expert_annotation.common.reaction_rendering import render_reaction
+from expert_annotation.common.ui_style import (
+    ANNOTATION_APP_CSS,
+    CONDITION_LEGEND_FONT_SIZE,
+    CONDITION_MOLECULE_IMAGE_SIZE,
+    IMAGE_RENDER_SCALE,
+    display_condition_slot,
+    fit_image_to_canvas,
+    scale_size,
+)
 
-    if len(numeric_args) >= 2:
-        return numeric_args[0], numeric_args[1]
-    return default_start, default_end
-
-START, END = get_range_from_args()
-suffix = f"_{START}_{END}"
-INPUT_DATA = f"annotation_input_data{suffix}.csv"
-HUMAN_FILE = f"annotation_human{suffix}.csv"
-IMAGE_RENDER_SCALE = 2
-REACTION_MOLECULE_IMAGE_SIZE = (500, 300)
-REACTION_SEPARATOR_WIDTH = 54
-REACTION_ARROW_WIDTH = 105
-REACTION_CANVAS_PADDING = 18
-CONDITION_IMAGE_SIZE = (500, 300)
-CONDITION_MOLECULE_IMAGE_SIZE = (180, 180)
-CONDITION_LEGEND_FONT_SIZE = 50
-CONDITION_SLOT_DISPLAY_LABELS = {
-    "cat": "Catalyst",
-    "catalyst": "Catalyst",
-    "solv0": "Solvent",
-    "solv1": "Solvent",
-    "solv2": "Solvent",
-    "solvent": "Solvent",
-    "reag0": "Reagent",
-    "reag1": "Reagent",
-    "reag2": "Reagent",
-    "reag3": "Reagent",
-    "reagent": "Reagent",
-}
-
+DATA_DIR = Path(__file__).resolve().parent / "data"
+INPUT_DATA = str(DATA_DIR / "annotation_inputs.csv")
+HUMAN_FILE = str(DATA_DIR / "human_annotations.csv")
 # Set page config for a professional look
 st.set_page_config(page_title="Reaction Condition Preference", layout="wide")
 
 # Custom CSS for better UI
-st.markdown("""
-    <style>
-    .stButton > button {
-        height: 3em;
-        font-weight: bold;
-    }
-    .option-box {
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #ddd;
-        background-color: #f9f9f9;
-        min-height: 100px;
-        text-align: center;
-        font-size: 1.2em;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-def split_reaction_smiles(smiles):
-    """
-    Splits reaction SMILES into reactant and product component SMILES.
-    """
-    parts = smiles.split(">")
-    if len(parts) == 2:
-        reactants, products = parts
-    elif len(parts) == 3:
-        reactants, _, products = parts
-    else:
-        return [], []
-
-    return (
-        [part for part in reactants.split(".") if part],
-        [part for part in products.split(".") if part],
-    )
-
-def load_reaction_font(size):
-    """
-    Loads a readable separator font, falling back to PIL's default if needed.
-    """
-    try:
-        return ImageFont.truetype("DejaVuSans.ttf", size)
-    except OSError:
-        return ImageFont.load_default()
-
-def scale_size(size, scale=IMAGE_RENDER_SCALE):
-    return tuple(int(value * scale) for value in size)
+st.markdown(ANNOTATION_APP_CSS, unsafe_allow_html=True)
 
 def scale_value(value, scale=IMAGE_RENDER_SCALE):
     return int(value * scale)
-
-def draw_centered_text(draw, box, text, font, fill="black"):
-    text_box = draw.textbbox((0, 0), text, font=font)
-    text_width = text_box[2] - text_box[0]
-    text_height = text_box[3] - text_box[1]
-    x = box[0] + (box[2] - box[0] - text_width) // 2
-    y = box[1] + (box[3] - box[1] - text_height) // 2
-    draw.text((x, y), text, font=font, fill=fill)
-
-def draw_reaction_arrow(draw, box):
-    mid_y = (box[1] + box[3]) // 2
-    start_x = box[0] + scale_value(12)
-    end_x = box[2] - scale_value(14)
-    draw.line((start_x, mid_y, end_x, mid_y), fill="black", width=scale_value(3))
-    draw.polygon(
-        [
-            (end_x, mid_y),
-            (end_x - scale_value(14), mid_y - scale_value(8)),
-            (end_x - scale_value(14), mid_y + scale_value(8)),
-        ],
-        fill="black",
-    )
-
-def render_reaction_components(reactants, products):
-    """
-    Renders reaction components with explicit separators to avoid RDKit plus overlap.
-    """
-    components = [("mol", smiles) for smiles in reactants]
-    for smiles in products:
-        components.append(("product", smiles))
-
-    mol_images = []
-    invalid_smiles = []
-    for _, component_smiles in components:
-        mol = Chem.MolFromSmiles(component_smiles)
-        if mol is None:
-            invalid_smiles.append(component_smiles)
-            continue
-        mol_images.append(Draw.MolToImage(mol, size=scale_size(REACTION_MOLECULE_IMAGE_SIZE)))
-
-    if invalid_smiles or len(mol_images) != len(components):
-        return None
-
-    molecule_width, molecule_height = scale_size(REACTION_MOLECULE_IMAGE_SIZE)
-    separator_width = scale_value(REACTION_SEPARATOR_WIDTH)
-    arrow_width = scale_value(REACTION_ARROW_WIDTH)
-    canvas_padding = scale_value(REACTION_CANVAS_PADDING)
-    total_molecules = len(components)
-    separator_count = max(0, len(reactants) - 1) + max(0, len(products) - 1)
-    total_width = (
-        canvas_padding * 2
-        + total_molecules * molecule_width
-        + separator_count * separator_width
-        + arrow_width
-    )
-    total_height = molecule_height + canvas_padding * 2
-    canvas = Image.new("RGB", (total_width, total_height), "white")
-    draw = ImageDraw.Draw(canvas)
-    separator_font = load_reaction_font(scale_value(52))
-
-    x = canvas_padding
-    y = canvas_padding
-    image_index = 0
-    for reactant_index, _ in enumerate(reactants):
-        canvas.paste(mol_images[image_index].convert("RGB"), (x, y))
-        image_index += 1
-        x += molecule_width
-        if reactant_index < len(reactants) - 1:
-            draw_centered_text(
-                draw,
-                (x, y, x + separator_width, y + molecule_height),
-                "+",
-                separator_font,
-            )
-            x += separator_width
-
-    draw_reaction_arrow(draw, (x, y, x + arrow_width, y + molecule_height))
-    x += arrow_width
-
-    for product_index, _ in enumerate(products):
-        canvas.paste(mol_images[image_index].convert("RGB"), (x, y))
-        image_index += 1
-        x += molecule_width
-        if product_index < len(products) - 1:
-            draw_centered_text(
-                draw,
-                (x, y, x + separator_width, y + molecule_height),
-                "+",
-                separator_font,
-            )
-            x += separator_width
-
-    return canvas
-
-# Helper function to render reaction SMILES to a PIL Image
-def render_reaction(smiles):
-    """
-    Converts a reaction SMILES into a PIL Image using RDKit.
-    Handles standard reaction SMILES (reactants>>products).
-    """
-    if not smiles or not isinstance(smiles, str):
-        return None
-        
-    # Pre-processing to handle common invalid SMILES like HBr or HCl
-    # Standard SMILES for these are just Br and Cl (hydrogens are implicit)
-    clean_smiles = smiles.replace("HBr", "Br").replace("HCl", "Cl")
-    
-    try:
-        reactants, products = split_reaction_smiles(clean_smiles)
-        if reactants and products:
-            img = render_reaction_components(reactants, products)
-            if img is not None:
-                return img
-
-        # Use ReactionFromSmarts with useSmiles=True for standard SMILES strings
-        rxn = rdChemReactions.ReactionFromSmarts(clean_smiles, useSmiles=True)
-        if rxn is None:
-            # Try without useSmiles just in case it's actually SMARTS
-            rxn = rdChemReactions.ReactionFromSmarts(clean_smiles)
-            
-        if rxn is None:
-            return None
-        
-        # Draw the reaction
-        img = Draw.ReactionToImage(rxn, subImgSize=scale_size((900, 900)))
-        return img
-    except Exception as e:
-        st.error(f"Error rendering reaction: {e}")
-        return None
 
 def split_condition_smiles(condition_smiles):
     """
@@ -274,8 +75,7 @@ def get_condition_slot(slots, index):
     """
     if index >= len(slots):
         return ""
-    slot = slots[index]
-    return CONDITION_SLOT_DISPLAY_LABELS.get(slot.lower(), slot)
+    return display_condition_slot(slots[index])
 
 def render_condition_molecules(condition_smiles, condition_slots=None):
     """
@@ -313,21 +113,6 @@ def render_condition_molecules(condition_smiles, condition_slots=None):
     )
     return img, invalid_smiles
 
-def fit_image_to_canvas(img, size=CONDITION_IMAGE_SIZE):
-    """
-    Fits an RDKit image into a fixed-size white canvas so both options render
-    at the same height in Streamlit.
-    """
-    canvas_size = scale_size(size)
-    canvas = Image.new("RGB", canvas_size, "white")
-    resized = img.convert("RGB")
-    resized.thumbnail(canvas_size, Image.Resampling.LANCZOS)
-
-    x = (canvas_size[0] - resized.width) // 2
-    y = (canvas_size[1] - resized.height) // 2
-    canvas.paste(resized, (x, y))
-    return canvas
-
 def show_condition_option(title, condition_smiles, condition_slots=None):
     """
     Displays condition text and its RDKit molecule image when possible.
@@ -337,7 +122,7 @@ def show_condition_option(title, condition_smiles, condition_slots=None):
 
     img, invalid_smiles = render_condition_molecules(condition_smiles, condition_slots)
     if img:
-        st.image(fit_image_to_canvas(img), use_container_width=True)
+        st.image(fit_image_to_canvas(img), width="stretch")
     elif condition_smiles:
         st.write(condition_smiles)
     else:
@@ -354,6 +139,8 @@ def load_data(file_path):
     if not os.path.exists(file_path):
         st.warning(f"Input file '{file_path}' not found. Loading dummy data for demonstration.")
         dummy_data = pd.DataFrame({
+            'evaluation_id': [0, 1, 2],
+            'source_index': [0, 1, 2],
             'reaction_smiles': [
                 '[CH3:1][C:2](=[O:3])[OH:4].[CH3:5][CH2:6][OH:7]>>[CH3:1][C:2](=[O:3])[O:4][CH2:6][CH3:5].[OH2:7]',
                 'c1ccccc1.BrBr>>c1ccccc1Br.Br',
@@ -374,7 +161,7 @@ def load_data(file_path):
     
     try:
         df = pd.read_csv(file_path)
-        required_cols = ['reaction_smiles', 'condition_a', 'condition_b']
+        required_cols = ['evaluation_id', 'source_index', 'reaction_smiles', 'condition_a', 'condition_b']
         if not all(col in df.columns for col in required_cols):
             st.error(f"Dataset must contain: {required_cols}")
             return pd.DataFrame()
@@ -405,30 +192,23 @@ def find_resume_index(data, output_file):
     Returns the first input row that has not already been annotated.
     """
     annotations = load_existing_annotations(output_file)
-    if annotations.empty or "reaction_smiles" not in annotations.columns:
+    if annotations.empty or "evaluation_id" not in annotations.columns:
         return 0
 
-    completed = annotations["reaction_smiles"].dropna().astype(str).tolist()
-    input_reactions = data["reaction_smiles"].astype(str).tolist()
+    completed = set(annotations["evaluation_id"].dropna().astype(int))
+    return next(
+        (index for index, value in enumerate(data["evaluation_id"]) if int(value) not in completed),
+        len(data),
+    )
 
-    resume_index = 0
-    for input_smiles, completed_smiles in zip(input_reactions, completed):
-        if input_smiles != completed_smiles:
-            break
-        resume_index += 1
-
-    return min(resume_index, len(data))
-
-def find_existing_annotation(annotations, reaction_smiles):
+def find_existing_annotation(annotations, evaluation_id):
     """
     Returns the latest saved annotation for a reaction, if present.
     """
-    if annotations.empty or "reaction_smiles" not in annotations.columns:
+    if annotations.empty or "evaluation_id" not in annotations.columns:
         return None
 
-    matches = annotations[
-        annotations["reaction_smiles"].astype(str) == str(reaction_smiles)
-    ]
+    matches = annotations[annotations["evaluation_id"].astype(int) == int(evaluation_id)]
     if matches.empty:
         return None
 
@@ -461,13 +241,16 @@ def parse_saved_bool(value):
 
 def get_output_columns(file_path, default_columns):
     """
-    Keeps appends compatible with the annotation file already on disk.
+    Keeps existing columns while allowing the annotation schema to grow.
     """
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return default_columns
 
     try:
-        return pd.read_csv(file_path, nrows=0).columns.tolist()
+        existing_columns = pd.read_csv(file_path, nrows=0).columns.tolist()
+        return existing_columns + [
+            column for column in default_columns if column not in existing_columns
+        ]
     except Exception:
         return default_columns
 
@@ -483,22 +266,13 @@ def save_annotation(file_path, annotation):
     else:
         existing = pd.DataFrame(columns=output_columns)
 
-    new_row = pd.DataFrame([annotation], columns=output_columns)
-    if existing.empty or "reaction_smiles" not in existing.columns:
-        updated = pd.concat([existing, new_row], ignore_index=True)
-    else:
-        reaction_smiles = str(annotation["reaction_smiles"])
-        matches = existing["reaction_smiles"].astype(str) == reaction_smiles
-        if matches.any():
-            updated = existing.copy()
-            row_index = matches[matches].index[-1]
-            for column in output_columns:
-                if column in new_row.columns:
-                    updated.loc[row_index, column] = new_row.iloc[0][column]
-        else:
-            updated = pd.concat([existing, new_row], ignore_index=True)
-
-    updated.to_csv(file_path, index=False)
+    upsert_row(
+        file_path,
+        annotation,
+        key_column="evaluation_id",
+        existing=existing,
+        columns=output_columns,
+    )
 
 # --- App State Initialization ---
 if 'randomized_data' not in st.session_state:
@@ -531,7 +305,7 @@ if not data.empty and st.session_state.current_index < len(data):
     # Current Sample
     idx = st.session_state.current_index
     row = data.iloc[idx]
-    saved_annotation = find_existing_annotation(annotations, row['reaction_smiles'])
+    saved_annotation = find_existing_annotation(annotations, row['evaluation_id'])
     saved_choice = get_annotation_value(saved_annotation, "user_choice", "")
     
     # Randomization Logic
@@ -609,7 +383,7 @@ if not data.empty and st.session_state.current_index < len(data):
     img = render_reaction(row['reaction_smiles'])
     if img:
         # Use more width for the reaction image
-        st.image(img, use_container_width=True, caption=row['reaction_smiles'], width='stretch')
+        st.image(img, caption=row['reaction_smiles'], width="stretch")
     else:
         st.error("Failed to render reaction image. Please check the SMILES format.")
 
@@ -632,18 +406,24 @@ if not data.empty and st.session_state.current_index < len(data):
         st.success(f"Saved choice for this sample: {saved_choice}")
     else:
         st.info("No saved choice for this sample yet.")
+
+    saved_notes = str(get_annotation_value(saved_annotation, "notes", ""))
+    notes_key = f"notes_{int(row['evaluation_id'])}"
     
-    btn_col1, btn_col2, btn_col3, btn_col4, btn_col5 = st.columns(5)
+    btn_col1, btn_col2, btn_col3 = st.columns(3)
     
     def handle_click(choice):
         annotation = {
+            'evaluation_id': int(row['evaluation_id']),
+            'source_index': int(row['source_index']),
             'reaction_smiles': row['reaction_smiles'],
             'shown_option_1': opt1_text,
             'shown_option_1_slots': opt1_slots,
             'shown_option_2': opt2_text,
             'shown_option_2_slots': opt2_slots,
             'user_choice': choice,
-            'is_option_1_GT': is_opt1_a
+            'is_option_1_GT': is_opt1_a,
+            'notes': st.session_state.get(notes_key, saved_notes),
         }
         
         save_annotation(output_file, annotation)
@@ -651,25 +431,24 @@ if not data.empty and st.session_state.current_index < len(data):
         # Increment index
         st.session_state.current_index = min(st.session_state.current_index + 1, len(data))
 
-    if btn_col1.button("👈 Prefer Option 1", width="stretch", type="primary" if saved_choice == "Option 1" else "secondary"):
+    if btn_col1.button("Prefer Option 1", width="stretch", type="primary" if saved_choice == "Option 1" else "secondary"):
         handle_click("Option 1")
         st.rerun()
         
-    if btn_col2.button("👉 Prefer Option 2", width="stretch", type="primary" if saved_choice == "Option 2" else "secondary"):
+    if btn_col2.button("Prefer Option 2", width="stretch", type="primary" if saved_choice == "Option 2" else "secondary"):
         handle_click("Option 2")
         st.rerun()
         
-    if btn_col3.button("🤝 Both Valid / Equivalent", width="stretch", type="primary" if saved_choice == "Tie" else "secondary"):
-        handle_click("Tie")
-        st.rerun()
-        
-    if btn_col4.button("❌ Both Sets Bad", width="stretch", type="primary" if saved_choice == "Bad" else "secondary"):
-        handle_click("Bad")
+    if btn_col3.button("Cannot determine", width="stretch", type="primary" if saved_choice == "Cannot determine" else "secondary"):
+        handle_click("Cannot determine")
         st.rerun()
 
-    if btn_col5.button("⚠️ Invalid Reaction", width="stretch", type="primary" if saved_choice == "Invalid Reaction" else "secondary"):
-        handle_click("Invalid Reaction")
-        st.rerun()
+    st.text_area(
+        "Notes (Optional)",
+        value=saved_notes,
+        placeholder="If you choose Cannot determine, briefly explain why.",
+        key=notes_key,
+    )
 
 elif not data.empty:
     # All samples completed

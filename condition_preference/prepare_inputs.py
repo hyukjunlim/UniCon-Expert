@@ -3,9 +3,11 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 CHEMPROP_ROOT = REPO_ROOT / "chemprop"
 for path in (REPO_ROOT, CHEMPROP_ROOT):
     path_str = str(path)
@@ -17,7 +19,7 @@ from train_unicon import SLOT_ORDER
 DEFAULT_TEST_PATH = str(REPO_ROOT / "data/MPNN_data/GCN_data_test.csv")
 DEFAULT_LABEL_PATH = str(REPO_ROOT / "data/labels")
 DEFAULT_LIBRARY_PATH = str(REPO_ROOT / "data/condition_library")
-DEFAULT_OUTPUT_DIR = str(REPO_ROOT / "expert_annotation")
+DEFAULT_OUTPUT_DIR = str(WORKFLOW_DIR / "data")
 DEFAULT_VOCAB_CACHE_DIR = str(REPO_ROOT / "expert_annotation/_cache/unicon_vocab")
 TARGET_COLUMNS = list(SLOT_ORDER)
 DISPLAY_SLOT_LABELS = {
@@ -32,15 +34,10 @@ DISPLAY_SLOT_LABELS = {
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description=(
-            "Write expert annotation input CSV rows from the test set. "
-            "The selected interval is zero-indexed and end-exclusive."
-        )
+        description="Randomly sample test reactions for condition-preference annotation."
     )
-    parser.add_argument("start_pos", nargs="?", type=int, help="First test-set index to include.")
-    parser.add_argument("end_pos", nargs="?", type=int, help="Stop before this test-set index.")
-    parser.add_argument("--start", dest="start_opt", type=int, help="First test-set index to include.")
-    parser.add_argument("--end", dest="end_opt", type=int, help="Stop before this test-set index.")
+    parser.add_argument("--n", type=int, default=50, help="Number of test reactions to sample.")
+    parser.add_argument("--sample-seed", type=int, default=42)
     parser.add_argument("--test-path", default=DEFAULT_TEST_PATH, help="Path to the test CSV.")
     parser.add_argument("--label-path", default=DEFAULT_LABEL_PATH, help="Path to condition label CSVs.")
     parser.add_argument(
@@ -51,32 +48,35 @@ def parse_args():
     parser.add_argument(
         "--output-dir",
         default=DEFAULT_OUTPUT_DIR,
-        help="Directory where annotation_input_data_{start}_{end}.csv is written.",
+        help="Directory where annotation_inputs.csv is written.",
     )
     parser.add_argument(
         "--vocab-cache-dir",
         default=DEFAULT_VOCAB_CACHE_DIR,
         help="Directory where the generated annotation vocabulary cache is written.",
     )
-    parser.add_argument("--seed", type=int, default=0, help="Random seed for deterministic generation.")
-    args = parser.parse_args()
-    args.start = args.start_opt if args.start_opt is not None else args.start_pos
-    args.end = args.end_opt if args.end_opt is not None else args.end_pos
-    return args
+    parser.add_argument("--model-seed", type=int, default=0, help="Seed used by model inference.")
+    return parser.parse_args()
 
 
 def validate_args(args):
-    if args.start is None or args.end is None:
-        raise ValueError("Provide start and end, e.g. python input_data_writer.py 50 100")
-    if args.start < 0:
-        raise ValueError("start must be >= 0")
-    if args.end <= args.start:
-        raise ValueError("end must be greater than start")
+    if args.n <= 0:
+        raise ValueError("--n must be positive")
     if not os.path.exists(args.test_path):
         raise FileNotFoundError(f"Test CSV not found: {args.test_path}")
 
 
-def setup_prediction_context(end, test_path, label_path, library_path, vocab_cache_dir, seed):
+def random_test_traversal(dataset_size, seed):
+    """Return every test index once in a reproducibly shuffled order."""
+    return np.random.default_rng(seed).permutation(dataset_size)
+
+
+def is_exact_condition_match(archived_indices, candidate_indices):
+    """Match the set-based exact-condition criterion used by the curation code."""
+    return set(archived_indices) == set(candidate_indices)
+
+
+def setup_prediction_context(test_path, label_path, library_path, vocab_cache_dir, seed):
     try:
         from chemprop.features import (
             set_adding_hs,
@@ -99,7 +99,7 @@ def setup_prediction_context(end, test_path, label_path, library_path, vocab_cac
     original_argv = sys.argv[:]
     try:
         sys.argv = [original_argv[0]]
-        args = _setup_args(end)
+        args = _setup_args(None)
     finally:
         sys.argv = original_argv
     args.separate_test_path = test_path
@@ -243,9 +243,9 @@ def get_baseline_info_with_slots(
     return display_str if display_str else "None", slot_str, indices
 
 
-def build_rows(start, end, test_path, label_path, library_path, vocab_cache_dir, seed):
+def build_rows(n, sample_seed, test_path, label_path, library_path, vocab_cache_dir, model_seed):
     try:
-        from chemprop.data import MoleculeDataLoader, get_data
+        from chemprop.data import MoleculeDataLoader, MoleculeDataset, get_data
     except ImportError as exc:
         raise SystemExit(
             "Could not import the model dependencies needed to generate baseline "
@@ -261,36 +261,37 @@ def build_rows(start, end, test_path, label_path, library_path, vocab_cache_dir,
         condition_key,
         libraries,
         baseline_models,
-    ) = setup_prediction_context(end, test_path, label_path, library_path, vocab_cache_dir, seed)
+    ) = setup_prediction_context(test_path, label_path, library_path, vocab_cache_dir, model_seed)
 
     df_data = pd.read_csv(test_path)
     data = get_data(path=test_path, args=args)
+    if n > len(data):
+        raise ValueError(f"Cannot sample {n} reactions from a test set containing {len(data)} rows")
+    traversal_indices = random_test_traversal(len(data), sample_seed)
+    data = MoleculeDataset([data[int(index)] for index in traversal_indices])
     loader = MoleculeDataLoader(dataset=data, batch_size=1, num_workers=0, shuffle=False)
 
     rows = []
-    for index, batch in enumerate(loader):
-        if index >= end:
-            break
-        if index < start:
-            continue
-
+    exact_matches_skipped = 0
+    for source_index, batch in zip(traversal_indices, loader):
+        source_index = int(source_index)
         graph_input = batch.batch_graph()
         targets = batch.targets()
         reaction_smiles = batch.smiles()[0][0]
         templates = (
-            df_data["tpl_SMARTS_r1"].iloc[index],
-            df_data["tpl_SMARTS_r0"].iloc[index],
-            df_data["tpl_SMARTS_r0*"].iloc[index],
+            df_data["tpl_SMARTS_r1"].iloc[source_index],
+            df_data["tpl_SMARTS_r0"].iloc[source_index],
+            df_data["tpl_SMARTS_r0*"].iloc[source_index],
         )
 
-        gt_str, gt_slots, _ = format_gt_condition_with_slots(
+        gt_str, gt_slots, gt_indices = format_gt_condition_with_slots(
             targets,
             args,
             col_to_file,
             vocab_mappings,
             idx_to_entity,
         )
-        baseline_str, baseline_slots, _ = get_baseline_info_with_slots(
+        baseline_str, baseline_slots, baseline_indices = get_baseline_info_with_slots(
             baseline_models,
             graph_input,
             templates,
@@ -300,8 +301,15 @@ def build_rows(start, end, test_path, label_path, library_path, vocab_cache_dir,
             vocab_mappings,
         )
 
+        if is_exact_condition_match(gt_indices, baseline_indices):
+            exact_matches_skipped += 1
+            print(f"[{source_index}] skipped exact archived/candidate match")
+            continue
+
         rows.append(
             {
+                "evaluation_id": len(rows),
+                "source_index": source_index,
                 "reaction_smiles": reaction_smiles,
                 "condition_a": gt_str if gt_str else "None",
                 "condition_a_slots": gt_slots,
@@ -310,21 +318,32 @@ def build_rows(start, end, test_path, label_path, library_path, vocab_cache_dir,
             }
         )
         print(
-            f"[{index}] GT={rows[-1]['condition_a']} ({rows[-1]['condition_a_slots']}) | "
+            f"[{source_index}] GT={rows[-1]['condition_a']} ({rows[-1]['condition_a_slots']}) | "
             f"Baseline={rows[-1]['condition_b']} ({rows[-1]['condition_b_slots']})"
         )
+
+        if len(rows) == n:
+            break
+
+    if len(rows) < n:
+        raise ValueError(
+            f"Only found {len(rows)} non-exact pairs in {len(data)} test reactions; requested {n}"
+        )
+    print(f"Selected {len(rows)} non-exact pairs; skipped {exact_matches_skipped} exact matches")
 
     return rows
 
 
-def write_annotation_input(start, end, test_path, label_path, library_path, output_dir, vocab_cache_dir, seed):
-    rows = build_rows(start, end, test_path, label_path, library_path, vocab_cache_dir, seed)
+def write_annotation_input(n, sample_seed, test_path, label_path, library_path, output_dir, vocab_cache_dir, model_seed):
+    rows = build_rows(n, sample_seed, test_path, label_path, library_path, vocab_cache_dir, model_seed)
     os.makedirs(output_dir, exist_ok=True)
 
-    output_path = os.path.join(output_dir, f"annotation_input_data_{start}_{end}.csv")
+    output_path = os.path.join(output_dir, "annotation_inputs.csv")
     pd.DataFrame(
         rows,
         columns=[
+            "evaluation_id",
+            "source_index",
             "reaction_smiles",
             "condition_a",
             "condition_a_slots",
@@ -342,14 +361,14 @@ def main():
     args = parse_args()
     validate_args(args)
     output_path, row_count = write_annotation_input(
-        args.start,
-        args.end,
+        args.n,
+        args.sample_seed,
         args.test_path,
         args.label_path,
         args.library_path,
         args.output_dir,
         args.vocab_cache_dir,
-        args.seed,
+        args.model_seed,
     )
     print(f"Wrote {row_count} rows to {output_path}")
 
