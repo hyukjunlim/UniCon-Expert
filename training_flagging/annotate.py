@@ -3,13 +3,11 @@
 import json
 import os
 import sys
+from html import escape
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from rdkit import Chem
-from rdkit.Chem import Draw
-from rdkit.Chem.Draw import rdMolDraw2D
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -17,22 +15,22 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from common.csv_store import read_csv_if_exists, upsert_row
-from common.reaction_rendering import render_reaction
+from common.figure_assets import (
+    DEFAULT_FIGURE_DIR,
+    load_pre_rendered_condition_paths,
+    reaction_figure_path,
+    svg_data_uri,
+)
 from common.ui_style import (
     ANNOTATION_APP_CSS,
-    CONDITION_IMAGE_SIZE,
-    CONDITION_LEGEND_FONT_SIZE,
-    CONDITION_MOLECULE_IMAGE_SIZE,
-    IMAGE_RENDER_SCALE,
     display_condition_slot,
-    fit_image_to_canvas,
-    scale_size,
 )
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DEFAULT_INPUT = DATA_DIR / "annotation_inputs.csv"
 DEFAULT_OUTPUT = DATA_DIR / "human_annotations.csv"
-ISSUE_OPTIONS = ["Missing reagent", "Misassigned reagent", "No obvious annotation issue"]
+ISSUE_OPTIONS = ["Missing agent", "Misassigned agent", "No obvious annotation issue"]
+NO_ISSUE_OPTION = "No obvious annotation issue"
 ASSESSMENT_OPTIONS = [
     "Archived protocol is plausible",
     "Archived protocol is implausible",
@@ -43,53 +41,50 @@ st.set_page_config(page_title="Training-set flag evaluation", layout="wide")
 st.markdown(ANNOTATION_APP_CSS, unsafe_allow_html=True)
 
 
-def render_conditions(value, slots):
-    if pd.isna(value) or str(value).strip().lower() in {"", "none", "nan"}:
-        return None, []
-    slot_values = [] if pd.isna(slots) else [part.strip() for part in str(slots).split(",")]
-    molecules, legends, invalid = [], [], []
-    for index, smiles in enumerate(part.strip() for part in str(value).split(",") if part.strip()):
-        molecule = Chem.MolFromSmiles(smiles)
-        if molecule is None:
-            invalid.append(smiles)
-            continue
-        molecules.append(molecule)
-        role = display_condition_slot(slot_values[index]) if index < len(slot_values) else ""
-        legends.append(f"{smiles}\n{role}" if role else smiles)
-    if not molecules:
-        return None, invalid
-    draw_options = rdMolDraw2D.MolDrawOptions()
-    draw_options.legendFontSize = CONDITION_LEGEND_FONT_SIZE * IMAGE_RENDER_SCALE
-    return Draw.MolsToGridImage(
-        molecules,
-        molsPerRow=min(3, len(molecules)),
-        subImgSize=scale_size(CONDITION_MOLECULE_IMAGE_SIZE),
-        legends=legends,
-        drawOptions=draw_options,
-    ), invalid
-
-
-def condition_components(value, slots):
-    values = [] if pd.isna(value) or str(value).strip().lower() in {"", "none", "nan"} else [
-        part.strip() for part in str(value).split(",") if part.strip()
-    ]
-    roles = [] if pd.isna(slots) else [part.strip() for part in str(slots).split(",")]
-    if not values:
-        return [{"smiles": "No listed component", "slot": "Archived protocol"}]
-    return [
-        {"smiles": smiles, "slot": roles[index] if index < len(roles) else "Condition component"}
-        for index, smiles in enumerate(values)
-    ]
-
-
-def saved_component_issues(saved):
-    if saved is None or "component_annotations" not in saved or pd.isna(saved["component_annotations"]):
-        return {}
+def saved_reaction_issues(saved):
+    """Load the current reaction-level response or migrate an older per-component one."""
+    if saved is None:
+        return []
+    value = saved.get("annotation_issues")
+    if value is not None and not pd.isna(value):
+        return [issue for issue in str(value).split(";") if issue in ISSUE_OPTIONS]
+    value = saved.get("component_annotations")
+    if value is None or pd.isna(value):
+        return []
     try:
-        annotations = json.loads(saved["component_annotations"])
-        return {int(item["component_index"]): item["issue"] for item in annotations}
+        issues = [item["issue"] for item in json.loads(value)]
+        return list(dict.fromkeys(issue for issue in issues if issue in ISSUE_OPTIONS))
     except (TypeError, ValueError, KeyError, json.JSONDecodeError):
-        return {}
+        return []
+
+
+def normalize_issue_selection(issues):
+    """Keep the no-issue choice mutually exclusive from actual issue choices."""
+    issues = [issue for issue in issues if issue in ISSUE_OPTIONS]
+    actual_issues = [issue for issue in issues if issue != NO_ISSUE_OPTION]
+    if actual_issues:
+        return actual_issues
+    return [NO_ISSUE_OPTION] if NO_ISSUE_OPTION in issues else []
+
+
+def resolve_issue_selection(selected, previous):
+    """Resolve a multi-select click while preserving the intended exclusivity."""
+    selected = list(selected)
+    added = set(selected) - set(previous)
+    if NO_ISSUE_OPTION in added:
+        return [NO_ISSUE_OPTION]
+    if NO_ISSUE_OPTION in selected and added:
+        selected = [issue for issue in selected if issue != NO_ISSUE_OPTION]
+    return normalize_issue_selection(selected)
+
+
+def enforce_issue_exclusivity(widget_key, previous_key):
+    """Immediately clear the logically incompatible selection after a click."""
+    selected = list(st.session_state.get(widget_key, []))
+    previous = list(st.session_state.get(previous_key, []))
+    selected = resolve_issue_selection(selected, previous)
+    st.session_state[widget_key] = selected
+    st.session_state[previous_key] = selected
 
 
 def save_response(path, response):
@@ -99,6 +94,7 @@ def save_response(path, response):
 st.sidebar.header("Data settings")
 input_path = st.sidebar.text_input("Input data", str(DEFAULT_INPUT))
 output_path = st.sidebar.text_input("Human annotations", str(DEFAULT_OUTPUT))
+figure_dir = st.sidebar.text_input("Pre-rendered figures", str(DEFAULT_FIGURE_DIR))
 
 data = read_csv_if_exists(input_path)
 responses = read_csv_if_exists(output_path)
@@ -132,54 +128,82 @@ else:
 
 st.title("Training-set annotation review")
 st.progress(index / len(data))
-st.write(f"Sample {index + 1} of {len(data)}")
-left, _, right = st.columns([1, 4, 1])
-if left.button("Previous", disabled=index == 0):
+left, center, right = st.columns([1, 2, 1])
+if left.button("< Previous", disabled=index == 0, width="stretch"):
     st.session_state.current_index -= 1
     st.rerun()
-if right.button("Next", disabled=index == len(data) - 1):
+center.write(f"**Sample:** {index + 1} / {len(data)}")
+if right.button("Next >", disabled=index == len(data) - 1, width="stretch"):
     st.session_state.current_index += 1
     st.rerun()
 
-reaction_image = render_reaction(row["reaction_smiles"])
-if reaction_image is not None:
-    st.image(reaction_image, width="stretch", caption=row["reaction_smiles"])
+reaction_path = reaction_figure_path(
+    figure_dir,
+    "training_flagging",
+    evaluation_id,
+    row["reaction_smiles"],
+)
+if reaction_path.exists():
+    st.image(str(reaction_path), width="stretch")
 else:
+    st.warning(
+        "Pre-rendered reaction figure is missing. Run "
+        "`python expert_annotation/generate_figures.py`."
+    )
     st.code(row["reaction_smiles"])
 
 st.subheader("Archived protocol")
-image, invalid = render_conditions(row["archived_condition"], row.get("archived_condition_slots", ""))
-if image is not None:
-    st.image(fit_image_to_canvas(image), width=CONDITION_IMAGE_SIZE[0])
-else:
-    st.write(row["archived_condition"])
-if invalid:
-    st.caption(f"Could not render: {', '.join(invalid)}")
+condition_assets = load_pre_rendered_condition_paths(
+    row,
+    "training_flagging",
+    "archived_condition",
+    "archived_condition_slots",
+    "archived_condition",
+    figure_dir,
+)
+condition_columns = st.columns(min(3, max(1, len(condition_assets))))
+missing_assets = []
+if not condition_assets:
+    st.caption("No listed condition components")
+for component_index, (path, smiles, role) in enumerate(condition_assets):
+    with condition_columns[component_index % len(condition_columns)]:
+        if path.exists():
+            st.markdown(
+                f'<div class="condition-component-image">'
+                f'<img src="{svg_data_uri(path)}" alt="{escape(smiles)}"></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            missing_assets.append(path)
+            st.code(smiles)
+        st.markdown(
+            f'<div class="condition-component-label">'
+            f'{escape(display_condition_slot(role))}: {escape(smiles)}</div>',
+            unsafe_allow_html=True,
+        )
+if missing_assets:
+    st.warning(
+        "Missing pre-rendered condition figure(s). Run "
+        "`python expert_annotation/generate_figures.py`."
+    )
 
-archived_components = condition_components(row["archived_condition"], row.get("archived_condition_slots", ""))
-previous_issues = saved_component_issues(saved)
-st.markdown("### A. Annotation issue for each archived component")
-component_annotations = []
-for component_index, component in enumerate(archived_components):
-    previous_issue = previous_issues.get(component_index, "No obvious annotation issue")
-    display_slot = display_condition_slot(component["slot"])
-    st.markdown(f"**{display_slot}: {component['smiles']}**")
-    issue = st.segmented_control(
-        "Annotation issue",
-        ISSUE_OPTIONS,
-        default=previous_issue if previous_issue in ISSUE_OPTIONS else ISSUE_OPTIONS[2],
-        key=f"issue_{evaluation_id}_{component_index}",
-        label_visibility="collapsed",
-        width="stretch",
-    )
-    component_annotations.append(
-        {
-            "component_index": component_index,
-            "slot": component["slot"],
-            "smiles": component["smiles"],
-            "issue": issue,
-        }
-    )
+previous_issues = normalize_issue_selection(saved_reaction_issues(saved))
+issues_key = f"issues_{evaluation_id}"
+issues_previous_key = f"issues_previous_{evaluation_id}"
+if issues_previous_key not in st.session_state:
+    st.session_state[issues_previous_key] = previous_issues
+st.markdown("### A. Annotation issues for this reaction")
+selected_issues = st.segmented_control(
+    "Annotation issues",
+    ISSUE_OPTIONS,
+    selection_mode="multi",
+    default=previous_issues,
+    key=issues_key,
+    on_change=enforce_issue_exclusivity,
+    args=(issues_key, issues_previous_key),
+    label_visibility="collapsed",
+    width="stretch",
+)
 
 default_assessment = None if saved is None else str(saved["overall_assessment"])
 st.markdown("### B. Overall assessment")
@@ -191,11 +215,19 @@ assessment = st.segmented_control(
     label_visibility="collapsed",
     width="stretch",
 )
-notes = st.text_area("Optional notes", value="" if saved is None or pd.isna(saved.get("notes")) else str(saved["notes"]))
+notes = st.text_area(
+    "Notes",
+    value="" if saved is None or pd.isna(saved.get("notes")) else str(saved["notes"]),
+    placeholder="If you choose implausible, briefly explain why.",
+)
 
 if st.button("Save and continue", type="primary"):
     error = None
-    if assessment is None:
+    if not selected_issues:
+        error = "Select at least one annotation-issue response."
+    elif NO_ISSUE_OPTION in selected_issues and len(selected_issues) > 1:
+        error = "No obvious annotation issue cannot be combined with another issue."
+    elif assessment is None:
         error = "Select an overall assessment."
     if error:
         st.error(error)
@@ -206,7 +238,7 @@ if st.button("Save and continue", type="primary"):
                 "evaluation_id": evaluation_id,
                 "source_index": int(row["source_index"]),
                 "reaction_smiles": row["reaction_smiles"],
-                "component_annotations": json.dumps(component_annotations),
+                "annotation_issues": ";".join(selected_issues),
                 "overall_assessment": assessment,
                 "notes": notes,
             },

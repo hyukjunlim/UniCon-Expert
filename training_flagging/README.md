@@ -29,9 +29,14 @@ All generated files live in `data/`:
 - `human_annotations.csv`: saved human responses
 - `analysis_results.csv`: joined, unblinded row-level results
 
-For every archived condition component, the annotator selects exactly one issue
-label. Each component defaults to "No obvious annotation issue." The annotator
-also selects one overall assessment for the archived protocol.
+Scalable reaction and fixed-height component SVGs are generated under
+`../figs/training_flagging/`. The Streamlit app only loads these static files;
+it does not draw molecules on demand. Regenerate them with
+`python expert_annotation/generate_figures.py --workflow training_flagging`.
+
+For each reaction, the annotator selects one or more applicable issue labels.
+"No obvious annotation issue" is mutually exclusive with the issue labels.
+The annotator also selects one overall assessment for the archived protocol.
 Only the archived protocol is shown; the proposed protocol is not displayed in
 the annotation interface.
 `analyze_results.py` reports issue and questionable-archive rates for the

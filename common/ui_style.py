@@ -44,6 +44,27 @@ div[data-testid="stSegmentedControl"] button {
     min-height: 3em;
     font-weight: bold;
 }
+.condition-component-label {
+    color: white;
+    font-size: 1.2rem;
+    font-weight: 600;
+    line-height: 1.35;
+    margin-top: 0.35rem;
+    margin-bottom: 0.8rem;
+}
+.condition-component-image {
+    align-items: center;
+    display: flex;
+    height: 240px;
+    justify-content: center;
+    overflow: hidden;
+    width: 100%;
+}
+.condition-component-image img {
+    height: 100%;
+    object-fit: contain;
+    width: 100%;
+}
 </style>
 """
 

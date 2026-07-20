@@ -13,8 +13,9 @@ from tqdm import tqdm
 
 WORKFLOW_DIR = Path(__file__).resolve().parent
 DATA_DIR = WORKFLOW_DIR / "data"
+EXPERT_ANNOTATION_DIR = WORKFLOW_DIR.parent
 REPO_ROOT = Path(__file__).resolve().parents[2]
-for path in (REPO_ROOT, REPO_ROOT / "chemprop"):
+for path in (EXPERT_ANNOTATION_DIR, REPO_ROOT, REPO_ROOT / "chemprop"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
@@ -25,6 +26,7 @@ from run_capfilt import _get_baseline_top1_indices, _load_baseline_models
 from train_unicon import SLOT_ORDER, UniConArgs
 from unicon_model import UniCon
 from utils import RxnFitCollator, load_unified_vocab, set_seed
+from common.figure_assets import DEFAULT_FIGURE_DIR, generate_csv_figures
 
 
 SLOT_LABELS = {
@@ -66,6 +68,8 @@ def parse_args():
         default=None,
         help="Hidden score/cohort key (default: <output stem>_key.csv).",
     )
+    parser.add_argument("--figure-dir", type=Path, default=DEFAULT_FIGURE_DIR)
+    parser.add_argument("--skip-figures", action="store_true")
     return parser.parse_args()
 
 
@@ -286,6 +290,17 @@ def main():
     print(f"Inspected {len(rows)} randomly ordered training reactions; {flagged_total} exceed {args.threshold:g}.")
     print(f"Wrote {len(selected)} blinded evaluation rows to {args.output_path}")
     print(f"Wrote the hidden score/cohort key to {key_path}")
+    if not args.skip_figures:
+        _, failures = generate_csv_figures(
+            args.output_path,
+            "training_flagging",
+            [("archived_condition", "archived_condition_slots", "archived_condition")],
+            args.figure_dir,
+            overwrite=True,
+        )
+        print(f"Generated pre-rendered figures in {args.figure_dir}")
+        if failures:
+            print(f"Warning: RDKit could not render {len(failures)} value(s)")
 
 
 if __name__ == "__main__":

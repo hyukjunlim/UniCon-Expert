@@ -8,6 +8,7 @@ proposal for a seeded random sample in a blinded Streamlit interface.
 - `prepare_inputs.py`: randomly samples N non-exact test pairs without replacement.
 - `annotate.py`: displays reactions and randomly ordered condition options.
 - `export_labels.py`: converts UI choices to labels keyed by test-set index.
+- `../generate_figures.py`: pre-renders scalable reaction and component SVGs.
 - `data/`: prepared inputs, raw human responses, and exported labels.
 
 ## Data flow
@@ -37,3 +38,8 @@ export.
 
 `data/historical_ranges/` preserves the earlier first-150 evaluation and is not
 read by the randomized pipeline.
+
+The Streamlit app does not invoke RDKit to draw displayed rows. Preparation
+creates the required files in `../figs/condition_preference/`; missing or stale
+assets are reported in the UI and can be regenerated with
+`python expert_annotation/generate_figures.py --workflow condition_preference`.

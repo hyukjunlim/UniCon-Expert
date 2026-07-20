@@ -7,14 +7,16 @@ import numpy as np
 import pandas as pd
 
 WORKFLOW_DIR = Path(__file__).resolve().parent
+EXPERT_ANNOTATION_DIR = WORKFLOW_DIR.parent
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHEMPROP_ROOT = REPO_ROOT / "chemprop"
-for path in (REPO_ROOT, CHEMPROP_ROOT):
+for path in (EXPERT_ANNOTATION_DIR, REPO_ROOT, CHEMPROP_ROOT):
     path_str = str(path)
     if path_str not in sys.path:
         sys.path.insert(0, path_str)
 
 from train_unicon import SLOT_ORDER
+from common.figure_assets import DEFAULT_FIGURE_DIR, generate_csv_figures
 
 DEFAULT_TEST_PATH = str(REPO_ROOT / "data/MPNN_data/GCN_data_test.csv")
 DEFAULT_LABEL_PATH = str(REPO_ROOT / "data/labels")
@@ -56,6 +58,8 @@ def parse_args():
         help="Directory where the generated annotation vocabulary cache is written.",
     )
     parser.add_argument("--model-seed", type=int, default=0, help="Seed used by model inference.")
+    parser.add_argument("--figure-dir", default=str(DEFAULT_FIGURE_DIR))
+    parser.add_argument("--skip-figures", action="store_true")
     return parser.parse_args()
 
 
@@ -371,6 +375,20 @@ def main():
         args.model_seed,
     )
     print(f"Wrote {row_count} rows to {output_path}")
+    if not args.skip_figures:
+        _, failures = generate_csv_figures(
+            output_path,
+            "condition_preference",
+            [
+                ("condition_a", "condition_a_slots", "condition_a"),
+                ("condition_b", "condition_b_slots", "condition_b"),
+            ],
+            args.figure_dir,
+            overwrite=True,
+        )
+        print(f"Generated pre-rendered figures in {args.figure_dir}")
+        if failures:
+            print(f"Warning: RDKit could not render {len(failures)} value(s)")
 
 
 if __name__ == "__main__":

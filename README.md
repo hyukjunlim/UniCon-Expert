@@ -18,6 +18,7 @@ expert_annotation/
 │   ├── analyze_results.py
 │   └── data/
 ├── archive/                 archived experimental code
+├── figs/                    generated high-resolution UI images (gitignored)
 └── _cache/                  generated UniCon vocabulary cache
 ```
 
@@ -37,6 +38,14 @@ The preparation step randomly samples non-exact archived/ReaCon pairs using
 `condition_preference/data/expert_labels.json`. `eval_attention.py` reads that
 file directly.
 
+Input preparation also pre-renders each reaction and condition component as a
+scalable SVG under `figs/condition_preference/`. To regenerate static images for
+an existing CSV without running model inference:
+
+```bash
+python expert_annotation/generate_figures.py --workflow condition_preference
+```
+
 See [condition_preference/README.md](condition_preference/README.md) for schemas
 and conversion behavior.
 
@@ -55,6 +64,14 @@ The default preparation samples 50 flags above 0.75 and 50 controls from
 non-exact archived/ReaCon pairs. It writes the annotator-facing rows and the
 hidden score/cohort key separately. Do not give `annotation_inputs_key.csv` to
 the annotator before evaluation finishes.
+
+The preparation command writes the corresponding static images under
+`figs/training_flagging/`. Generate or refresh both workflows' existing inputs
+with:
+
+```bash
+python expert_annotation/generate_figures.py --overwrite
+```
 
 See [training_flagging/README.md](training_flagging/README.md) for the sampling
 rule, response schema, and output files.

@@ -11,14 +11,16 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 
 
 def annotation_issues(row):
+    current = row.get("annotation_issues")
+    if current is not None and not pd.isna(current):
+        return [part for part in str(current).split(";") if part]
     value = row.get("component_annotations")
     if value is not None and not pd.isna(value):
         try:
             return [item["issue"] for item in json.loads(value)]
         except (TypeError, ValueError, KeyError, json.JSONDecodeError):
             pass
-    legacy = row.get("annotation_issues", "")
-    return [] if pd.isna(legacy) else [part for part in str(legacy).split(";") if part]
+    return []
 
 
 def main():
@@ -49,7 +51,7 @@ def main():
     print(pd.crosstab(completed["sampling_group"], completed["overall_assessment"], margins=True))
     completed["issues"] = completed.apply(annotation_issues, axis=1)
     completed["any_annotation_issue"] = completed["issues"].apply(
-        lambda values: "Missing reagent" in values or "Misassigned reagent" in values
+        lambda values: "Missing agent" in values or "Misassigned agent" in values
     )
     completed["questionable_archive"] = (
         completed["overall_assessment"] == "Archived protocol is implausible"
@@ -59,7 +61,7 @@ def main():
         completed.groupby("sampling_group")[["any_annotation_issue", "questionable_archive"]]
         .agg(["sum", "count", "mean"])
     )
-    for issue in ("Missing reagent", "Misassigned reagent", "No obvious annotation issue"):
+    for issue in ("Missing agent", "Misassigned agent", "No obvious annotation issue"):
         selected = completed["issues"].apply(lambda values: issue in values)
         rates = selected.groupby(completed["sampling_group"]).agg(["sum", "count", "mean"])
         print(f"\n{issue}:")

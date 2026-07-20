@@ -5,25 +5,23 @@ import pandas as pd
 import random
 import os
 import sys
+from html import escape
 from pathlib import Path
-from rdkit import Chem
-from rdkit.Chem import Draw
-from rdkit.Chem.Draw import rdMolDraw2D
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from common.csv_store import upsert_row
-from common.reaction_rendering import render_reaction
+from common.figure_assets import (
+    DEFAULT_FIGURE_DIR,
+    load_pre_rendered_condition_paths,
+    reaction_figure_path,
+    svg_data_uri,
+)
 from common.ui_style import (
     ANNOTATION_APP_CSS,
-    CONDITION_LEGEND_FONT_SIZE,
-    CONDITION_MOLECULE_IMAGE_SIZE,
-    IMAGE_RENDER_SCALE,
     display_condition_slot,
-    fit_image_to_canvas,
-    scale_size,
 )
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -35,101 +33,42 @@ st.set_page_config(page_title="Reaction Condition Preference", layout="wide")
 # Custom CSS for better UI
 st.markdown(ANNOTATION_APP_CSS, unsafe_allow_html=True)
 
-def scale_value(value, scale=IMAGE_RENDER_SCALE):
-    return int(value * scale)
-
-def split_condition_smiles(condition_smiles):
-    """
-    Splits a condition field containing comma-separated SMILES into clean entries.
-    """
-    condition_smiles = normalize_condition_smiles(condition_smiles)
-    if not condition_smiles:
-        return []
-    return [part.strip() for part in condition_smiles.split(",") if part.strip()]
-
-def split_condition_slots(condition_slots):
-    """
-    Splits a comma-separated condition slot field into clean entries.
-    """
-    condition_slots = normalize_condition_smiles(condition_slots)
-    if not condition_slots:
-        return []
-    return [part.strip() for part in condition_slots.split(",")]
-
-def normalize_condition_smiles(condition_smiles):
-    """
-    Normalizes empty CSV values so pandas NaN/None are not shown as text.
-    """
-    if condition_smiles is None or pd.isna(condition_smiles):
-        return ""
-
-    condition_smiles = str(condition_smiles).strip()
-    if condition_smiles.lower() in {"nan", "none", "null"}:
-        return ""
-
-    return condition_smiles
-
-def get_condition_slot(slots, index):
-    """
-    Returns the condition role label aligned with a displayed SMILES.
-    """
-    if index >= len(slots):
-        return ""
-    return display_condition_slot(slots[index])
-
-def render_condition_molecules(condition_smiles, condition_slots=None):
-    """
-    Converts comma-separated condition SMILES into a grid image using RDKit.
-    Returns the rendered image and any entries RDKit could not parse.
-    """
-    smiles_list = split_condition_smiles(condition_smiles)
-    slots = split_condition_slots(condition_slots)
-    mols = []
-    legends = []
-    invalid_smiles = []
-
-    for index, smiles in enumerate(smiles_list):
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is None:
-            invalid_smiles.append(smiles)
-            continue
-        mols.append(mol)
-        slot = get_condition_slot(slots, index)
-        legends.append(f"{smiles}\n{slot}" if slot else smiles)
-
-    if not mols:
-        return None, invalid_smiles
-
-    draw_options = rdMolDraw2D.MolDrawOptions()
-    draw_options.legendFontSize = scale_value(CONDITION_LEGEND_FONT_SIZE)
-
-    img = Draw.MolsToGridImage(
-        mols,
-        molsPerRow=min(3, len(mols)),
-        subImgSize=scale_size(CONDITION_MOLECULE_IMAGE_SIZE),
-        legends=legends,
-        useSVG=False,
-        drawOptions=draw_options,
-    )
-    return img, invalid_smiles
-
-def show_condition_option(title, condition_smiles, condition_slots=None):
-    """
-    Displays condition text and its RDKit molecule image when possible.
-    """
+def show_condition_option(title, row, value_column, slot_column, figure_dir):
+    """Display the pre-rendered image for each component in one option."""
     st.markdown(f"### {title}")
-    condition_smiles = normalize_condition_smiles(condition_smiles)
-
-    img, invalid_smiles = render_condition_molecules(condition_smiles, condition_slots)
-    if img:
-        st.image(fit_image_to_canvas(img), width="stretch")
-    elif condition_smiles:
-        st.write(condition_smiles)
-    else:
+    assets = load_pre_rendered_condition_paths(
+        row,
+        "condition_preference",
+        value_column,
+        slot_column,
+        value_column,
+        figure_dir,
+    )
+    if not assets:
         st.caption("No condition SMILES")
-
-    if invalid_smiles:
-        st.caption(f"Could not render as SMILES: {', '.join(invalid_smiles)}")
+        return
+    columns = st.columns(min(3, len(assets)))
+    missing = []
+    for index, (path, smiles, role) in enumerate(assets):
+        with columns[index % len(columns)]:
+            if path.exists():
+                st.markdown(
+                    f'<div class="condition-component-image">'
+                    f'<img src="{svg_data_uri(path)}" alt="{escape(smiles)}"></div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                missing.append(path)
+                st.code(smiles)
+            st.markdown(
+                f'<div class="condition-component-label">'
+                f'{escape(display_condition_slot(role))}: {escape(smiles)}</div>',
+                unsafe_allow_html=True,
+            )
+    if missing:
+        st.warning(
+            "Missing pre-rendered figure(s). Run `python expert_annotation/generate_figures.py`."
+        )
 
 # Load dataset function
 def load_data(file_path):
@@ -284,6 +223,7 @@ if 'randomized_data' not in st.session_state:
 st.sidebar.header("Data Settings")
 input_file = st.sidebar.text_input("Input Data Path", INPUT_DATA)
 output_file = st.sidebar.text_input("Output Annotations Path", HUMAN_FILE)
+figure_dir = st.sidebar.text_input("Pre-rendered Figures", str(DEFAULT_FIGURE_DIR))
 
 # Load data
 data = load_data(input_file)
@@ -358,6 +298,8 @@ if not data.empty and st.session_state.current_index < len(data):
     opt2_text = r_data['opt2_text']
     opt1_slots = r_data.get('opt1_slots', '')
     opt2_slots = r_data.get('opt2_slots', '')
+    opt1_column = "condition_a" if is_opt1_a else "condition_b"
+    opt2_column = "condition_b" if is_opt1_a else "condition_a"
 
     # --- UI Header ---
     st.title("🧪 Chemical Reaction Preference Annotation")
@@ -380,12 +322,21 @@ if not data.empty and st.session_state.current_index < len(data):
 
     # --- Reaction Image ---
     st.subheader("Reaction SMILES")
-    img = render_reaction(row['reaction_smiles'])
-    if img:
+    reaction_path = reaction_figure_path(
+        figure_dir,
+        "condition_preference",
+        row["evaluation_id"],
+        row["reaction_smiles"],
+    )
+    if reaction_path.exists():
         # Use more width for the reaction image
-        st.image(img, caption=row['reaction_smiles'], width="stretch")
+        st.image(str(reaction_path), width="stretch")
     else:
-        st.error("Failed to render reaction image. Please check the SMILES format.")
+        st.error(
+            "Pre-rendered reaction figure is missing. Run "
+            "`python expert_annotation/generate_figures.py`."
+        )
+        st.code(row['reaction_smiles'])
 
     st.divider()
 
@@ -394,10 +345,14 @@ if not data.empty and st.session_state.current_index < len(data):
     col_left, col_right = st.columns(2)
     
     with col_left:
-        show_condition_option("Option 1", opt1_text, opt1_slots)
+        show_condition_option(
+            "Option 1", row, opt1_column, f"{opt1_column}_slots", figure_dir
+        )
         
     with col_right:
-        show_condition_option("Option 2", opt2_text, opt2_slots)
+        show_condition_option(
+            "Option 2", row, opt2_column, f"{opt2_column}_slots", figure_dir
+        )
 
     # --- Buttons Section ---
     st.markdown("---")
@@ -444,7 +399,7 @@ if not data.empty and st.session_state.current_index < len(data):
         st.rerun()
 
     st.text_area(
-        "Notes (Optional)",
+        "Notes",
         value=saved_notes,
         placeholder="If you choose Cannot determine, briefly explain why.",
         key=notes_key,
