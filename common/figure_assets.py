@@ -19,11 +19,11 @@ from common.reaction_rendering import (
 EXPERT_ANNOTATION_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_FIGURE_DIR = EXPERT_ANNOTATION_DIR / "figs"
 MOLECULE_IMAGE_SIZE = (500, 300)
-REACTION_IMAGE_SIZE = (1800, 500)
-REACTION_MOLECULE_SIZE = (340, 360)
+REACTION_IMAGE_SIZE = (1800, 300)
+REACTION_MOLECULE_SIZE = (340, 180)
 REACTION_SEPARATOR_WIDTH = 44
 REACTION_ARROW_WIDTH = 132
-REACTION_CANVAS_PADDING = 12
+REACTION_CANVAS_PADDING = 8
 ASSET_VERSION = "svg-v6"
 
 
@@ -38,6 +38,12 @@ def normalize_text(value):
 def split_csv_field(value):
     value = normalize_text(value)
     return [] if not value else [part.strip() for part in value.split(",") if part.strip()]
+
+
+def canonical_smiles(value):
+    """Return a stable canonical representation for ordering and comparison."""
+    molecule = Chem.MolFromSmiles(value)
+    return Chem.MolToSmiles(molecule, canonical=True) if molecule else str(value)
 
 
 def _content_hash(*values):
@@ -247,10 +253,16 @@ def generate_csv_figures(
 
 
 def load_pre_rendered_condition_paths(
-    row, workflow, value_column, slot_column, field_name, figure_dir=DEFAULT_FIGURE_DIR
+    row,
+    workflow,
+    value_column,
+    slot_column,
+    field_name,
+    figure_dir=DEFAULT_FIGURE_DIR,
+    priority_values=None,
 ):
-    """Return expected per-component asset paths and their display metadata."""
-    return condition_figure_paths(
+    """Return component assets, optionally placing shared values first."""
+    assets = condition_figure_paths(
         figure_dir,
         workflow,
         row["evaluation_id"],
@@ -258,3 +270,13 @@ def load_pre_rendered_condition_paths(
         row.get(value_column, ""),
         row.get(slot_column, ""),
     )
+    priority_keys = {
+        canonical_smiles(value) for value in split_csv_field(priority_values)
+    }
+
+    def canonical_key(asset):
+        _, smiles, _ = asset
+        canonical = canonical_smiles(smiles)
+        return canonical not in priority_keys, canonical, smiles
+
+    return sorted(assets, key=canonical_key)

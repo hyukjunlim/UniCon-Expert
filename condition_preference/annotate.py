@@ -21,7 +21,6 @@ from common.figure_assets import (
 )
 from common.ui_style import (
     ANNOTATION_APP_CSS,
-    display_condition_slot,
 )
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -33,7 +32,9 @@ st.set_page_config(page_title="Reaction Condition Preference", layout="wide")
 # Custom CSS for better UI
 st.markdown(ANNOTATION_APP_CSS, unsafe_allow_html=True)
 
-def show_condition_option(title, row, value_column, slot_column, figure_dir):
+def show_condition_option(
+    title, row, value_column, slot_column, figure_dir, other_option_values
+):
     """Display the pre-rendered image for each component in one option."""
     st.markdown(f"### {title}")
     assets = load_pre_rendered_condition_paths(
@@ -43,6 +44,7 @@ def show_condition_option(title, row, value_column, slot_column, figure_dir):
         slot_column,
         value_column,
         figure_dir,
+        priority_values=other_option_values,
     )
     if not assets:
         st.caption("No condition SMILES")
@@ -63,7 +65,7 @@ def show_condition_option(title, row, value_column, slot_column, figure_dir):
                 st.code(smiles)
             st.markdown(
                 f'<div class="condition-component-label">'
-                f'{escape(display_condition_slot(role))}: {escape(smiles)}</div>',
+                f'{escape(smiles)}</div>',
                 unsafe_allow_html=True,
             )
     if missing:
@@ -214,6 +216,41 @@ def save_annotation(file_path, annotation):
         columns=output_columns,
     )
 
+def show_status_blocks(data, annotations):
+    """Render a compact five-column question navigator in the sidebar."""
+    completed = (
+        set(annotations["evaluation_id"].dropna().astype(int))
+        if not annotations.empty and "evaluation_id" in annotations.columns
+        else set()
+    )
+    with st.sidebar:
+        st.markdown("#### Question status")
+        with st.container(key="question_status"):
+            for start in range(0, len(data), 5):
+                columns = st.columns(5, gap=None)
+                for offset, column in enumerate(columns):
+                    position = start + offset
+                    if position >= len(data):
+                        continue
+                    evaluation_id = int(data.iloc[position]["evaluation_id"])
+                    if position == st.session_state.current_index:
+                        marker = "🟦"
+                    elif evaluation_id in completed:
+                        marker = "🟩"
+                    else:
+                        marker = "⬜"
+                    if column.button(
+                        marker,
+                        key=f"status_{evaluation_id}",
+                        help=f"Question {position + 1}",
+                        width="content",
+                    ):
+                        st.session_state.current_index = position
+                        st.rerun()
+        st.caption("🟩 Done")
+        st.caption("🟦 Current")
+        st.caption("⬜ Unanswered")
+
 # --- App State Initialization ---
 if 'randomized_data' not in st.session_state:
     # We store the randomization per index to ensure consistency across re-runs 
@@ -304,6 +341,7 @@ if not data.empty and st.session_state.current_index < len(data):
 
     # --- UI Header ---
     st.title("🧪 Chemical Reaction Condition Preference")
+    show_status_blocks(data, annotations)
     
     # Progress
     progress = (idx) / len(data)
@@ -322,7 +360,7 @@ if not data.empty and st.session_state.current_index < len(data):
         st.rerun()
 
     # --- Reaction Image ---
-    st.subheader("Reaction SMILES")
+    st.subheader("Reaction")
     reaction_path = reaction_figure_path(
         figure_dir,
         "condition_preference",
@@ -342,22 +380,34 @@ if not data.empty and st.session_state.current_index < len(data):
     st.divider()
 
     # --- Reagent Choices ---
-    st.subheader("Which condition set do you prefer?")
+    st.subheader("Condition sets")
     col_left, col_right = st.columns(2)
     
     with col_left:
-        show_condition_option(
-            "Option 1", row, opt1_column, f"{opt1_column}_slots", figure_dir
-        )
+        with st.container(border=True):
+            show_condition_option(
+                "Option 1",
+                row,
+                opt1_column,
+                f"{opt1_column}_slots",
+                figure_dir,
+                opt2_text,
+            )
         
     with col_right:
-        show_condition_option(
-            "Option 2", row, opt2_column, f"{opt2_column}_slots", figure_dir
-        )
+        with st.container(border=True):
+            show_condition_option(
+                "Option 2",
+                row,
+                opt2_column,
+                f"{opt2_column}_slots",
+                figure_dir,
+                opt1_text,
+            )
 
     # --- Buttons Section ---
     st.markdown("---")
-    st.markdown("### Decision")
+    st.markdown("### Q. Which option do you prefer?")
     if saved_choice:
         st.success(f"Saved choice for this sample: {saved_choice}")
     else:
@@ -365,52 +415,72 @@ if not data.empty and st.session_state.current_index < len(data):
 
     saved_notes = str(get_annotation_value(saved_annotation, "notes", ""))
     notes_key = f"notes_{int(row['evaluation_id'])}"
-    
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
-    
-    def handle_click(choice):
-        annotation = {
-            'evaluation_id': int(row['evaluation_id']),
-            'source_index': int(row['source_index']),
-            'reaction_smiles': row['reaction_smiles'],
-            'shown_option_1': opt1_text,
-            'shown_option_1_slots': opt1_slots,
-            'shown_option_2': opt2_text,
-            'shown_option_2_slots': opt2_slots,
-            'user_choice': choice,
-            'is_option_1_GT': is_opt1_a,
-            'notes': st.session_state.get(notes_key, saved_notes),
-        }
-        
-        save_annotation(output_file, annotation)
-        
-        # Increment index
-        st.session_state.current_index = min(st.session_state.current_index + 1, len(data))
 
-    if btn_col1.button("Prefer Option 1", width="stretch", type="primary" if saved_choice == "Option 1" else "secondary"):
-        handle_click("Option 1")
-        st.rerun()
-        
-    if btn_col2.button("Prefer Option 2", width="stretch", type="primary" if saved_choice == "Option 2" else "secondary"):
-        handle_click("Option 2")
-        st.rerun()
-        
-    if btn_col3.button("Cannot determine", width="stretch", type="primary" if saved_choice == "Cannot determine" else "secondary"):
-        handle_click("Cannot determine")
-        st.rerun()
+    decision_key = f"decision_{int(row['evaluation_id'])}"
+    if decision_key not in st.session_state:
+        st.session_state[decision_key] = saved_choice or None
+
+    def select_choice(choice):
+        st.session_state[decision_key] = choice
+
+    selected_choice = st.session_state[decision_key]
+    choice_columns = st.columns(4)
+    for column, label, value in zip(
+        choice_columns,
+        ["Prefer Option 1", "Prefer Option 2", "Tie", "Cannot determine"],
+        ["Option 1", "Option 2", "Tie", "Cannot determine"],
+    ):
+        column.button(
+            label,
+            type="primary" if selected_choice == value else "secondary",
+            key=f"{decision_key}_{value}",
+            on_click=select_choice,
+            args=(value,),
+            width="stretch",
+        )
 
     st.text_area(
-        "Notes",
+        "Notes (optional)",
         value=saved_notes,
-        placeholder="If you choose Cannot determine, briefly explain why.",
+        placeholder="Briefly explain the reason for your choice (e.g., option 1 has no base).",
         key=notes_key,
     )
+
+    if st.button(
+        "Save and continue",
+        type="primary",
+        key=f"save_{int(row['evaluation_id'])}",
+    ):
+        choice = st.session_state[decision_key]
+        if choice is None:
+            st.error("Select a decision before continuing.")
+        else:
+            save_annotation(
+                output_file,
+                {
+                    'evaluation_id': int(row['evaluation_id']),
+                    'source_index': int(row['source_index']),
+                    'reaction_smiles': row['reaction_smiles'],
+                    'shown_option_1': opt1_text,
+                    'shown_option_1_slots': opt1_slots,
+                    'shown_option_2': opt2_text,
+                    'shown_option_2_slots': opt2_slots,
+                    'user_choice': choice,
+                    'is_option_1_GT': is_opt1_a,
+                    'notes': st.session_state.get(notes_key, saved_notes),
+                },
+            )
+            st.session_state.current_index = min(
+                st.session_state.current_index + 1, len(data)
+            )
+            st.rerun()
 
 elif not data.empty:
     # All samples completed
     st.balloons()
     st.success(f"### 🎉 All {len(data)} samples have been annotated!")
     st.write(f"Results saved to: `{output_file}`")
+    show_status_blocks(data, annotations)
 
     if st.button("< Previous sample", disabled=len(data) == 0):
         st.session_state.current_index = max(len(data) - 1, 0)

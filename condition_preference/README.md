@@ -31,10 +31,16 @@ UI hides that identity by randomizing the displayed options and recording
 field, particularly to explain a **Cannot determine** decision.
 
 Exported labels use the original test-set indices and are `gt`, `baseline`,
-`cannot_determine`. The annotation interface presents exactly **Prefer Option
-1**, **Prefer Option 2**, and **Cannot determine**. Incomplete annotations are
-rejected by default; use `--allow-partial` only for an intentionally incomplete
-export.
+`tie`, or `cannot_determine`. The annotation interface presents **Prefer Option
+1**, **Prefer Option 2**, **Tie**, and **Cannot determine**. Shared agents are
+listed first in each bordered option, followed by option-specific agents. A
+selection and optional note are committed with **Save and continue**. Incomplete
+annotations are rejected by default; use `--allow-partial` only for an
+intentionally incomplete export.
+
+Condition components are displayed without role prefixes and sorted by their
+RDKit canonical SMILES. Both interfaces provide a clickable five-column status
+grid in the sidebar for moving between answered and unanswered samples.
 
 `data/historical_ranges/` preserves the earlier first-150 evaluation and is not
 read by the randomized pipeline.

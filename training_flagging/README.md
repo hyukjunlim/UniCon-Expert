@@ -36,8 +36,13 @@ it does not draw molecules on demand. Regenerate them with
 
 For each reaction, the annotator selects one or more applicable issue labels.
 "No obvious annotation issue" is mutually exclusive with the issue labels.
-The annotator also selects one overall assessment for the archived protocol.
-Only the archived protocol is shown; the proposed protocol is not displayed in
-the annotation interface.
-`analyze_results.py` reports issue and questionable-archive rates for the
-flagged and control groups.
+The issue labels use the same highlighted-button interaction as the condition
+preference decisions.
+The annotator can also save an optional per-reaction note. Only the archived
+protocol is shown; the proposed protocol is not displayed in the annotation
+interface. Components are shown without role prefixes and sorted by RDKit
+canonical SMILES. A clickable five-column status grid in the sidebar provides
+direct navigation between answered and unanswered samples.
+
+`analyze_results.py` reports annotation-issue rates for the flagged and control
+groups.

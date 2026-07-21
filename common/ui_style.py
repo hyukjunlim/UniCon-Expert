@@ -30,8 +30,8 @@ ANNOTATION_APP_CSS = """
 /* Keep the annotation canvas proportional to the browser width. */
 div[data-testid="stMainBlockContainer"],
 .stMain .block-container {
-    max-width: 70%;
-    width: 70%;
+    max-width: 85%;
+    width: 85%;
 }
 @media (max-width: 768px) {
     div[data-testid="stMainBlockContainer"],
@@ -43,6 +43,75 @@ div[data-testid="stMainBlockContainer"],
 .stButton > button {
     height: 3em;
     font-weight: bold;
+}
+/*
+ * Use restrained, non-alarming accents for annotation actions.  Streamlit's
+ * default primary color can read as an error state when several choices are
+ * visible at once, so selected choices use red and commit actions use green.
+ */
+.stButton > button[kind="primary"] {
+    background-color: #d9534f !important;
+    border-color: #d9534f !important;
+    color: #ffffff !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background-color: #c4423e !important;
+    border-color: #c4423e !important;
+}
+.stButton > button[kind="primary"]:focus,
+.stButton > button[kind="primary"]:active {
+    background-color: #c4423e !important;
+    border-color: #c4423e !important;
+    box-shadow: 0 0 0 0.2rem rgb(217 83 79 / 22%) !important;
+}
+div[class*="st-key-save_"] button[kind="primary"] {
+    background-color: #2e8b57 !important;
+    border-color: #2e8b57 !important;
+}
+div[class*="st-key-save_"] button[kind="primary"]:hover {
+    background-color: #247447 !important;
+    border-color: #247447 !important;
+}
+div[class*="st-key-save_"] button[kind="primary"]:focus,
+div[class*="st-key-save_"] button[kind="primary"]:active {
+    background-color: #247447 !important;
+    border-color: #247447 !important;
+    box-shadow: 0 0 0 0.2rem rgb(46 139 87 / 22%) !important;
+}
+/* Status markers are bare, tightly packed clickable squares. */
+div[class*="st-key-question_status"] div[data-testid="stVerticalBlock"] {
+    gap: 0.25rem !important;
+}
+div[class*="st-key-question_status"] div[data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 0.4rem !important;
+    justify-content: center !important;
+}
+div[class*="st-key-question_status"] div[data-testid="stColumn"] {
+    flex: 0 0 1.75rem !important;
+    min-width: 1.75rem !important;
+    width: 1.75rem !important;
+}
+div[class*="st-key-status_"] button,
+div[class*="st-key-status_"] button:hover,
+div[class*="st-key-status_"] button:focus,
+div[class*="st-key-status_"] button:active {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    align-items: center !important;
+    height: 1.7rem !important;
+    justify-content: center !important;
+    min-height: 1.7rem !important;
+    min-width: 1.7rem !important;
+    padding: 0 !important;
+    width: 1.7rem !important;
+}
+div[class*="st-key-status_"] button p {
+    font-size: 1.3rem;
+    line-height: 1;
+    text-align: center;
 }
 .option-box {
     padding: 20px;
@@ -58,7 +127,7 @@ div[data-testid="stSegmentedControl"] button {
     font-weight: bold;
 }
 .condition-component-label {
-    color: white;
+    color: var(--text-color, inherit);
     font-size: 1.2rem;
     font-weight: 600;
     line-height: 1.35;

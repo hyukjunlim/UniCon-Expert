@@ -34,7 +34,8 @@ python expert_annotation/condition_preference/export_labels.py
 ```
 
 The preparation step randomly samples non-exact archived/ReaCon pairs using
-`--sample-seed 42` by default. Exact condition matches are skipped. The final labels are written to
+`--sample-seed 42` by default. Exact condition matches are skipped. The final
+labels (`gt`, `baseline`, `tie`, or `cannot_determine`) are written to
 `condition_preference/data/expert_labels.json`. `eval_attention.py` reads that
 file directly.
 

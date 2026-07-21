@@ -9,6 +9,7 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent / "data"
 CHOICE_TO_LABELS = {
     "cannot determine": "cannot_determine",
+    "tie": "tie",
 }
 
 

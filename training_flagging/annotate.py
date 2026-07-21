@@ -23,19 +23,14 @@ from common.figure_assets import (
 )
 from common.ui_style import (
     ANNOTATION_APP_CSS,
-    display_condition_slot,
 )
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DEFAULT_INPUT = DATA_DIR / "annotation_inputs.csv"
 DEFAULT_OUTPUT = DATA_DIR / "human_annotations.csv"
-ISSUE_OPTIONS = ["Missing agent", "Misassigned agent", "No obvious annotation issue"]
+ISSUE_OPTIONS = ["Missing agent", "Artifact agent", "No obvious annotation issue"]
+ISSUE_ALIASES = {"Misassigned agent": "Artifact agent"}
 NO_ISSUE_OPTION = "No obvious annotation issue"
-ASSESSMENT_OPTIONS = [
-    "Archived protocol is plausible",
-    "Archived protocol is implausible",
-    "Cannot determine",
-]
 
 st.set_page_config(page_title="Training-set flag evaluation", layout="wide")
 st.markdown(ANNOTATION_APP_CSS, unsafe_allow_html=True)
@@ -47,12 +42,13 @@ def saved_reaction_issues(saved):
         return []
     value = saved.get("annotation_issues")
     if value is not None and not pd.isna(value):
-        return [issue for issue in str(value).split(";") if issue in ISSUE_OPTIONS]
+        issues = [ISSUE_ALIASES.get(issue, issue) for issue in str(value).split(";")]
+        return [issue for issue in issues if issue in ISSUE_OPTIONS]
     value = saved.get("component_annotations")
     if value is None or pd.isna(value):
         return []
     try:
-        issues = [item["issue"] for item in json.loads(value)]
+        issues = [ISSUE_ALIASES.get(item["issue"], item["issue"]) for item in json.loads(value)]
         return list(dict.fromkeys(issue for issue in issues if issue in ISSUE_OPTIONS))
     except (TypeError, ValueError, KeyError, json.JSONDecodeError):
         return []
@@ -67,29 +63,44 @@ def normalize_issue_selection(issues):
     return [NO_ISSUE_OPTION] if NO_ISSUE_OPTION in issues else []
 
 
-def resolve_issue_selection(selected, previous):
-    """Resolve a multi-select click while preserving the intended exclusivity."""
-    selected = list(selected)
-    added = set(selected) - set(previous)
-    if NO_ISSUE_OPTION in added:
-        return [NO_ISSUE_OPTION]
-    if NO_ISSUE_OPTION in selected and added:
-        selected = [issue for issue in selected if issue != NO_ISSUE_OPTION]
-    return normalize_issue_selection(selected)
-
-
-def enforce_issue_exclusivity(widget_key, previous_key):
-    """Immediately clear the logically incompatible selection after a click."""
-    selected = list(st.session_state.get(widget_key, []))
-    previous = list(st.session_state.get(previous_key, []))
-    selected = resolve_issue_selection(selected, previous)
-    st.session_state[widget_key] = selected
-    st.session_state[previous_key] = selected
-
-
 def save_response(path, response):
     upsert_row(path, response, key_column="evaluation_id")
 
+
+def show_status_blocks(data, responses):
+    """Render a compact five-column question navigator in the sidebar."""
+    completed = (
+        set(responses["evaluation_id"].dropna().astype(int))
+        if not responses.empty and "evaluation_id" in responses.columns
+        else set()
+    )
+    with st.sidebar:
+        st.markdown("#### Question status")
+        with st.container(key="question_status"):
+            for start in range(0, len(data), 5):
+                columns = st.columns(5, gap=None)
+                for offset, column in enumerate(columns):
+                    position = start + offset
+                    if position >= len(data):
+                        continue
+                    evaluation_id = int(data.iloc[position]["evaluation_id"])
+                    if position == st.session_state.current_index:
+                        marker = "🟦"
+                    elif evaluation_id in completed:
+                        marker = "🟩"
+                    else:
+                        marker = "⬜"
+                    if column.button(
+                        marker,
+                        key=f"status_{evaluation_id}",
+                        help=f"Question {position + 1}",
+                        width="content",
+                    ):
+                        st.session_state.current_index = position
+                        st.rerun()
+        st.caption("🟩 Done")
+        st.caption("🟦 Current")
+        st.caption("⬜ Unanswered")
 
 st.sidebar.header("Data settings")
 input_path = st.sidebar.text_input("Input data", str(DEFAULT_INPUT))
@@ -112,6 +123,7 @@ if "current_index" not in st.session_state or st.session_state.get("data_key") !
 
 if st.session_state.current_index >= len(data):
     st.success(f"All {len(data)} reactions have been annotated. Results: {output_path}")
+    show_status_blocks(data, responses)
     if st.button("Review previous"):
         st.session_state.current_index = len(data) - 1
         st.rerun()
@@ -127,6 +139,7 @@ else:
     saved = saved_rows.iloc[-1] if not saved_rows.empty else None
 
 st.title("🧪 Reaction-Condition Dataset Flagging")
+show_status_blocks(data, responses)
 st.progress(index / len(data))
 left, center, right = st.columns([1, 2, 1])
 if left.button("< Previous", disabled=index == 0, width="stretch"):
@@ -137,6 +150,7 @@ if right.button("Next >", disabled=index == len(data) - 1, width="stretch"):
     st.session_state.current_index += 1
     st.rerun()
 
+st.subheader("Reaction")
 reaction_path = reaction_figure_path(
     figure_dir,
     "training_flagging",
@@ -180,7 +194,7 @@ for component_index, (path, smiles, role) in enumerate(condition_assets):
             st.code(smiles)
         st.markdown(
             f'<div class="condition-component-label">'
-            f'{escape(display_condition_slot(role))}: {escape(smiles)}</div>',
+            f'{escape(smiles)}</div>',
             unsafe_allow_html=True,
         )
 if missing_assets:
@@ -191,46 +205,51 @@ if missing_assets:
 
 previous_issues = normalize_issue_selection(saved_reaction_issues(saved))
 issues_key = f"issues_{evaluation_id}"
-issues_previous_key = f"issues_previous_{evaluation_id}"
-if issues_previous_key not in st.session_state:
-    st.session_state[issues_previous_key] = previous_issues
-st.markdown("### A. Annotation issues for this reaction")
-selected_issues = st.segmented_control(
-    "Annotation issues",
-    ISSUE_OPTIONS,
-    selection_mode="multi",
-    default=previous_issues,
-    key=issues_key,
-    on_change=enforce_issue_exclusivity,
-    args=(issues_key, issues_previous_key),
-    label_visibility="collapsed",
-    width="stretch",
-)
+if issues_key not in st.session_state:
+    st.session_state[issues_key] = previous_issues
 
-default_assessment = None if saved is None else str(saved["overall_assessment"])
-st.markdown("### B. Overall assessment")
-assessment = st.segmented_control(
-    "Overall assessment",
-    ASSESSMENT_OPTIONS,
-    default=default_assessment if default_assessment in ASSESSMENT_OPTIONS else None,
-    key=f"assessment_{evaluation_id}",
-    label_visibility="collapsed",
-    width="stretch",
-)
+def toggle_issue(issue):
+    selected = list(st.session_state.get(issues_key, []))
+    if issue in selected:
+        selected.remove(issue)
+    elif issue == NO_ISSUE_OPTION:
+        selected = [NO_ISSUE_OPTION]
+    else:
+        selected = [value for value in selected if value != NO_ISSUE_OPTION]
+        selected.append(issue)
+    st.session_state[issues_key] = normalize_issue_selection(selected)
+
+selected_issues = normalize_issue_selection(st.session_state[issues_key])
+st.session_state[issues_key] = selected_issues
+st.markdown("### Q. Annotation issues for this reaction")
+issue_columns = st.columns(len(ISSUE_OPTIONS))
+for column, issue in zip(issue_columns, ISSUE_OPTIONS):
+    column.button(
+        issue,
+        type="primary" if issue in selected_issues else "secondary",
+        key=f"{issues_key}_{issue}",
+        on_click=toggle_issue,
+        args=(issue,),
+        width="stretch",
+    )
+
 notes = st.text_area(
-    "Notes",
+    "Notes (optional)",
     value="" if saved is None or pd.isna(saved.get("notes")) else str(saved["notes"]),
-    placeholder="If you choose implausible, briefly explain why.",
+    placeholder="Briefly explain the reason for your choice (e.g., no base).",
+    key=f"notes_{evaluation_id}",
 )
 
-if st.button("Save and continue", type="primary"):
+if st.button(
+    "Save and continue",
+    type="primary",
+    key=f"save_{evaluation_id}",
+):
     error = None
     if not selected_issues:
         error = "Select at least one annotation-issue response."
     elif NO_ISSUE_OPTION in selected_issues and len(selected_issues) > 1:
         error = "No obvious annotation issue cannot be combined with another issue."
-    elif assessment is None:
-        error = "Select an overall assessment."
     if error:
         st.error(error)
     else:
@@ -241,7 +260,6 @@ if st.button("Save and continue", type="primary"):
                 "source_index": int(row["source_index"]),
                 "reaction_smiles": row["reaction_smiles"],
                 "annotation_issues": ";".join(selected_issues),
-                "overall_assessment": assessment,
                 "notes": notes,
             },
         )

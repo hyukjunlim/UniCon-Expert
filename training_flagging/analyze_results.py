@@ -13,11 +13,18 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 def annotation_issues(row):
     current = row.get("annotation_issues")
     if current is not None and not pd.isna(current):
-        return [part for part in str(current).split(";") if part]
+        return [
+            "Artifact agent" if part == "Misassigned agent" else part
+            for part in str(current).split(";")
+            if part
+        ]
     value = row.get("component_annotations")
     if value is not None and not pd.isna(value):
         try:
-            return [item["issue"] for item in json.loads(value)]
+            return [
+                "Artifact agent" if item["issue"] == "Misassigned agent" else item["issue"]
+                for item in json.loads(value)
+            ]
         except (TypeError, ValueError, KeyError, json.JSONDecodeError):
             pass
     return []
@@ -43,25 +50,20 @@ def main():
     )
     results.to_csv(args.output, index=False)
 
-    completed = results[results["overall_assessment"].notna()].copy()
+    results["issues"] = results.apply(annotation_issues, axis=1)
+    completed = results[results["issues"].apply(bool)].copy()
     print(f"Completed: {len(completed)}/{len(results)}")
     if completed.empty:
         return
-    print("\nOverall assessment by hidden sampling group:")
-    print(pd.crosstab(completed["sampling_group"], completed["overall_assessment"], margins=True))
-    completed["issues"] = completed.apply(annotation_issues, axis=1)
     completed["any_annotation_issue"] = completed["issues"].apply(
-        lambda values: "Missing agent" in values or "Misassigned agent" in values
+        lambda values: "Missing agent" in values or "Artifact agent" in values
     )
-    completed["questionable_archive"] = (
-        completed["overall_assessment"] == "Archived protocol is implausible"
-    )
-    print("\nPrimary flagging rates by hidden sampling group:")
+    print("\nAnnotation-issue rates by hidden sampling group:")
     print(
-        completed.groupby("sampling_group")[["any_annotation_issue", "questionable_archive"]]
+        completed.groupby("sampling_group")[["any_annotation_issue"]]
         .agg(["sum", "count", "mean"])
     )
-    for issue in ("Missing agent", "Misassigned agent", "No obvious annotation issue"):
+    for issue in ("Missing agent", "Artifact agent", "No obvious annotation issue"):
         selected = completed["issues"].apply(lambda values: issue in values)
         rates = selected.groupby(completed["sampling_group"]).agg(["sum", "count", "mean"])
         print(f"\n{issue}:")
