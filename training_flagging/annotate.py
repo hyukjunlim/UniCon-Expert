@@ -140,7 +140,9 @@ else:
 
 st.title("🧪 Reaction-Condition Dataset Flagging")
 show_status_blocks(data, responses)
-st.progress(index / len(data))
+progress = index / len(data)
+st.progress(progress)
+st.write(f"**Progress:** {index} / {len(data)} annotated ({int(progress * 100)}%)")
 left, center, right = st.columns([1, 2, 1])
 if left.button("< Previous", disabled=index == 0, width="stretch"):
     st.session_state.current_index -= 1
