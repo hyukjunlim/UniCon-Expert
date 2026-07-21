@@ -166,7 +166,7 @@ else:
     )
     st.code(row["reaction_smiles"])
 
-st.subheader("Archived protocol")
+st.subheader("Condition set")
 condition_assets = load_pre_rendered_condition_paths(
     row,
     "training_flagging",
@@ -221,7 +221,7 @@ def toggle_issue(issue):
 
 selected_issues = normalize_issue_selection(st.session_state[issues_key])
 st.session_state[issues_key] = selected_issues
-st.markdown("### Q. Annotation issues for this reaction")
+st.markdown("### Q. Is there any annotation issues for this condition set?")
 issue_columns = st.columns(len(ISSUE_OPTIONS))
 for column, issue in zip(issue_columns, ISSUE_OPTIONS):
     column.button(
